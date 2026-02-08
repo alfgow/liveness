@@ -168,39 +168,70 @@ function App() {
   }
 
   return (
-    <div className="liveness-shell">
-      <header className="liveness-header">
-        <p className="liveness-eyebrow">Validación de identidad</p>
-        <h1>Comprobación de vida</h1>
-        <p className="liveness-subtitle">
-          Sigue las instrucciones en pantalla para completar la validación.
-        </p>
-      </header>
-
-      {error ? <div className="liveness-alert">{error}</div> : null}
-
-      {!error && status === 'loading' ? (
-        <div className="liveness-status">Preparando sesión...</div>
-      ) : null}
-
-      {!error && status === 'saving' ? (
-        <div className="liveness-status">Guardando resultado...</div>
-      ) : null}
-
-      {!error && status === 'completed' ? (
-        <div className="liveness-success">
-          ✅ Validación completada. Puedes cerrar esta ventana.
+    <div className="min-h-screen bg-brand-surface py-12 px-4">
+      <div className="container mx-auto max-w-4xl">
+        
+        {/* Brand Header */}
+        <div className="liveness-header-brand">
+          <div className="brand-logo-container">
+            <img 
+              src="https://alfgow.s3.mx-central-1.amazonaws.com/Logo+Circular.png" 
+              alt="Arrendamiento Seguro" 
+              className="brand-logo"
+            />
+            <div className="brand-title">
+              <span className="brand-name">ARRENDAMIENTO</span>
+              <span className="brand-suffix">SEGURO</span>
+            </div>
+          </div>
         </div>
-      ) : null}
 
-      {!error && status === 'ready' && session ? (
-        <FaceLivenessDetector
-          sessionId={session.sessionId}
-          region={session.region}
-          onAnalysisComplete={handleAnalysisComplete}
-          onError={handleError}
-        />
-      ) : null}
+        {/* Main Card */}
+        <div className="bg-white rounded-2rem shadow-soft border border-brand-accent-20 overflow-hidden">
+          
+          {/* Card Header */}
+          <div className="card-header">
+            <h1 className="card-title">Comprobación de vida</h1>
+            <p className="card-subtitle">
+              Sigue las instrucciones en pantalla para completar la validación de tu identidad.
+            </p>
+          </div>
+
+          {/* Card Content */}
+          <div className="liveness-content">
+            <div className="liveness-container">
+              {error ? <div className="liveness-error">{error}</div> : null}
+
+              {!error && status === 'loading' ? (
+                <div className="liveness-status">Preparando sesión segura...</div>
+              ) : null}
+
+              {!error && status === 'saving' ? (
+                <div className="liveness-status">Guardando resultado...</div>
+              ) : null}
+
+              {!error && status === 'completed' ? (
+                <div className="liveness-success">
+                  ✅ Validación completada exitosamente. Puedes cerrar esta ventana.
+                </div>
+              ) : null}
+
+              {!error && status === 'ready' && session ? (
+                <FaceLivenessDetector
+                  sessionId={session.sessionId}
+                  region={session.region}
+                  onAnalysisComplete={handleAnalysisComplete}
+                  onError={handleError}
+                  config={{
+                    credentialProvider: config.amplifyConfig.Auth
+                  }}
+                />
+              ) : null}
+            </div>
+          </div>
+        </div>
+
+      </div>
     </div>
   )
 }
