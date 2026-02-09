@@ -54,14 +54,18 @@ function App() {
   }, [])
 
   useEffect(() => {
-    const urlToken = new URLSearchParams(window.location.search).get('token')
+    const { pathname, search } = window.location
+    const pathToken = pathname.replace(/^\/+/, '').trim()
+    const urlToken = new URLSearchParams(search).get('token')
+    const resolvedToken =
+      pathToken && pathToken !== 'index.html' ? pathToken : urlToken
 
-    if (!urlToken) {
+    if (!resolvedToken) {
       setError('No se encontró el token en la URL.')
       return
     }
 
-    setToken(urlToken)
+    setToken(resolvedToken)
   }, [])
 
   useEffect(() => {
