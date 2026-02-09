@@ -1,5 +1,11 @@
 import { FaceLivenessDetector } from '@aws-amplify/ui-react-liveness'
+import {
+  CreateFaceLivenessSessionCommand,
+  GetFaceLivenessSessionResultsCommand,
+  RekognitionClient,
+} from '@aws-sdk/client-rekognition'
 import { Amplify } from 'aws-amplify'
+import { fetchAuthSession } from 'aws-amplify/auth'
 import { useEffect, useMemo, useState } from 'react'
 import './App.css'
 
@@ -112,26 +118,30 @@ function App() {
         throw new Error(authorizeResult?.message ?? 'Token inválido o expirado.')
       }
 
-      const sessionUrl = buildEndpoint(config.sessionEndpoint, token, config.livenessBaseUrl)
-      const response = await fetch(sessionUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token }),
-      })
-
-      if (!response.ok) {
-        throw new Error('No se pudo iniciar la sesión de Liveness.')
+      const { credentials } = await fetchAuthSession()
+      if (!credentials) {
+        throw new Error('No se pudieron obtener credenciales de AWS.')
       }
 
-      const data = await response.json()
+      const rekognitionClient = new RekognitionClient({
+        region: config.amplifyConfig?.Auth?.Cognito?.region,
+        credentials: {
+          accessKeyId: credentials.accessKeyId,
+          secretAccessKey: credentials.secretAccessKey,
+          sessionToken: credentials.sessionToken,
+        },
+      })
 
-      if (!data?.session_id) {
+      const command = new CreateFaceLivenessSessionCommand({})
+      const response = await rekognitionClient.send(command)
+
+      if (!response?.SessionId) {
         throw new Error('La respuesta de sesión no incluye session_id.')
       }
 
       setSession({
-        sessionId: data.session_id,
-        region: data.region ?? config.amplifyConfig?.Auth?.Cognito?.region,
+        sessionId: response.SessionId,
+        region: config.amplifyConfig?.Auth?.Cognito?.region,
       })
       setStatus('ready')
     }
@@ -149,21 +159,31 @@ function App() {
 
     try {
       setStatus('saving')
-      const resultUrl = buildEndpoint(config.resultEndpoint, token, config.livenessBaseUrl)
-      const response = await fetch(resultUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          token,
-          session_id: session.sessionId,
-        }),
-      })
-
-      if (!response.ok) {
-        throw new Error('No se pudo guardar el resultado de Liveness.')
+      const { credentials } = await fetchAuthSession()
+      if (!credentials) {
+        throw new Error('No se pudieron obtener credenciales de AWS.')
       }
 
-      setStatus('completed')
+      const rekognitionClient = new RekognitionClient({
+        region: session.region,
+        credentials: {
+          accessKeyId: credentials.accessKeyId,
+          secretAccessKey: credentials.secretAccessKey,
+          sessionToken: credentials.sessionToken,
+        },
+      })
+
+      const command = new GetFaceLivenessSessionResultsCommand({
+        SessionId: session.sessionId,
+      })
+      const result = await rekognitionClient.send(command)
+
+      if (result?.Status === 'SUCCEEDED') {
+        setStatus('completed')
+        return
+      }
+
+      throw new Error('La validación no fue exitosa o expiró.')
     } catch (err) {
       setError(err.message ?? 'No se pudo guardar el resultado.')
       setStatus('error')
