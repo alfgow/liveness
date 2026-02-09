@@ -14,10 +14,12 @@ function App() {
 
     return {
       apiBaseUrl: runtimeConfig.apiBaseUrl ?? import.meta.env.VITE_API_BASE_URL ?? '',
+      livenessBaseUrl: runtimeConfig.livenessBaseUrl ?? import.meta.env.VITE_LIVENESS_BASE_URL ?? '',
+      apiToken: runtimeConfig.apiToken ?? import.meta.env.VITE_API_TOKEN ?? '',
       authorizeEndpoint:
         runtimeConfig.authorizeEndpoint ??
         import.meta.env.VITE_LIVENESS_AUTHORIZE_ENDPOINT ??
-        '/api/liveness/authorize',
+        '/api/v1/prospectos/identidad/validate',
       sessionEndpoint:
         runtimeConfig.sessionEndpoint ??
         import.meta.env.VITE_LIVENESS_SESSION_ENDPOINT ??
@@ -83,9 +85,15 @@ function App() {
       }
 
       const authorizeUrl = buildEndpoint(config.authorizeEndpoint, token, config.apiBaseUrl)
+
+      const headers = { 'Content-Type': 'application/json' }
+      if (config.apiToken) {
+        headers['Authorization'] = `Bearer ${config.apiToken}`
+      }
+
       const response = await fetch(authorizeUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ token }),
       })
 
@@ -104,7 +112,7 @@ function App() {
         throw new Error(authorizeResult?.message ?? 'Token inválido o expirado.')
       }
 
-      const sessionUrl = buildEndpoint(config.sessionEndpoint, token, config.apiBaseUrl)
+      const sessionUrl = buildEndpoint(config.sessionEndpoint, token, config.livenessBaseUrl)
       const response = await fetch(sessionUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -141,7 +149,7 @@ function App() {
 
     try {
       setStatus('saving')
-      const resultUrl = buildEndpoint(config.resultEndpoint, token, config.apiBaseUrl)
+      const resultUrl = buildEndpoint(config.resultEndpoint, token, config.livenessBaseUrl)
       const response = await fetch(resultUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
