@@ -237,6 +237,7 @@ function App() {
 
       if (result?.Status === 'SUCCEEDED') {
         setStatus('completed')
+        setShowDetector(false)
         return
       }
 
@@ -244,12 +245,14 @@ function App() {
     } catch (err) {
       setError(err.message ?? 'No se pudo guardar el resultado.')
       setStatus('error')
+      setShowDetector(false)
     }
   }
 
   const handleError = (livenessError) => {
     setError(livenessError?.message ?? 'Error durante la sesión de Liveness.')
     setStatus('error')
+    setShowDetector(false)
   }
 
   const livenessDisplayText = useMemo(
@@ -368,25 +371,23 @@ function App() {
                 </div>
               ) : null}
 
-              {session && showDetector ? (
-                <div style={{ display: error || status === 'completed' ? 'none' : 'block' }}>
-                  <FaceLivenessDetector
-                    sessionId={session.sessionId}
-                    region={session.region}
-                    onAnalysisComplete={handleAnalysisComplete}
-                    onError={handleError}
-                    displayText={livenessDisplayText}
-                    config={{
-                      credentialProvider: config.awsCredentials
-                        ? async () => ({
-                            accessKeyId: config.awsCredentials.accessKeyId,
-                            secretAccessKey: config.awsCredentials.secretAccessKey,
-                            sessionToken: config.awsCredentials.sessionToken,
-                          })
-                        : config.amplifyConfig.Auth
-                    }}
-                  />
-                </div>
+              {session && showDetector && !error && status !== 'completed' && status !== 'saving' ? (
+                <FaceLivenessDetector
+                  sessionId={session.sessionId}
+                  region={session.region}
+                  onAnalysisComplete={handleAnalysisComplete}
+                  onError={handleError}
+                  displayText={livenessDisplayText}
+                  config={{
+                    credentialProvider: config.awsCredentials
+                      ? async () => ({
+                          accessKeyId: config.awsCredentials.accessKeyId,
+                          secretAccessKey: config.awsCredentials.secretAccessKey,
+                          sessionToken: config.awsCredentials.sessionToken,
+                        })
+                      : config.amplifyConfig.Auth,
+                  }}
+                />
               ) : null}
             </div>
           </div>
