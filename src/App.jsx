@@ -6,7 +6,7 @@ import {
 } from '@aws-sdk/client-rekognition'
 import { Amplify } from 'aws-amplify'
 import { fetchAuthSession } from 'aws-amplify/auth'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
 function App() {
@@ -15,6 +15,8 @@ function App() {
   const [session, setSession] = useState(null)
   const [token, setToken] = useState('')
   const [credentials, setCredentials] = useState(null)
+  const [showDetector, setShowDetector] = useState(false)
+  const analysisCompleteRef = useRef(false)
 
   const config = useMemo(() => {
     const runtimeConfig = window.__LIVENESS_CONFIG__ ?? {}
@@ -120,6 +122,16 @@ function App() {
   }, [config, token])
 
   useEffect(() => {
+    if (status === 'ready') {
+      setShowDetector(true)
+    }
+  }, [status])
+
+  useEffect(() => {
+    analysisCompleteRef.current = false
+  }, [session?.sessionId])
+
+  useEffect(() => {
     if (!token || error) {
       return
     }
@@ -199,6 +211,12 @@ function App() {
       return
     }
 
+    if (analysisCompleteRef.current) {
+      return
+    }
+
+    analysisCompleteRef.current = true
+
     try {
       setStatus('saving')
       const resolvedCredentials = await getCredentials(config, credentials)
@@ -233,6 +251,73 @@ function App() {
     setError(livenessError?.message ?? 'Error durante la sesión de Liveness.')
     setStatus('error')
   }
+
+  const livenessDisplayText = useMemo(
+    () => ({
+      a11yVideoLabelText: 'Cámara para validación de vida',
+      cancelLivenessCheckText: 'Cancelar validación de vida',
+      cameraMinSpecificationsHeadingText: 'La cámara no cumple con los requisitos mínimos',
+      cameraMinSpecificationsMessageText:
+        'La cámara debe soportar al menos 320x240 de resolución y 15 cuadros por segundo.',
+      cameraNotFoundHeadingText: 'No se puede acceder a la cámara.',
+      cameraNotFoundMessageText:
+        'Verifica que la cámara esté conectada y que ninguna otra aplicación la esté usando. Puede que debas otorgar permisos de cámara en la configuración y reiniciar el navegador.',
+      retryCameraPermissionsText: 'Reintentar',
+      waitingCameraPermissionText: 'Esperando tu permiso para usar la cámara.',
+      goodFitCaptionText: 'Buen encuadre',
+      goodFitAltText: 'Ilustración de un rostro que encaja perfectamente dentro del óvalo.',
+      tooFarCaptionText: 'Demasiado lejos',
+      tooFarAltText:
+        'Ilustración de un rostro dentro del óvalo con espacio entre la cara y el óvalo.',
+      startScreenBeginCheckText: 'Iniciar validación en video',
+      hintCenterFaceText: 'Centra tu rostro',
+      hintCenterFaceInstructionText:
+        'Antes de iniciar, coloca la cámara al centro superior de la pantalla y centra tu rostro. Cuando comience la validación aparecerá un óvalo; acércate hasta llenarlo y luego permanece quieto.',
+      hintFaceOffCenterText: 'Tu rostro no está en el óvalo, céntralo.',
+      hintMoveFaceFrontOfCameraText: 'Coloca el rostro frente a la cámara',
+      hintTooManyFacesText: 'Asegúrate de que solo haya un rostro frente a la cámara',
+      hintFaceDetectedText: 'Rostro detectado',
+      hintCanNotIdentifyText: 'Coloca el rostro frente a la cámara',
+      hintTooCloseText: 'Aléjate un poco',
+      hintTooFarText: 'Acércate un poco',
+      hintConnectingText: 'Conectando...',
+      hintVerifyingText: 'Verificando...',
+      hintCheckCompleteText: 'Validación completa',
+      hintIlluminationTooBrightText: 'Muévete a un área con menos luz',
+      hintIlluminationTooDarkText: 'Muévete a un área con más luz',
+      hintIlluminationNormalText: 'La iluminación es adecuada',
+      hintHoldFaceForFreshnessText: 'Quédate quieto',
+      hintMatchIndicatorText: '50% completado. Sigue acercándote.',
+      recordingIndicatorText: 'Rec',
+      photosensitivityWarningHeadingText: 'Advertencia de fotosensibilidad',
+      photosensitivityWarningBodyText:
+        'Esta validación muestra colores intermitentes. Ten precaución si eres fotosensible.',
+      photosensitivityWarningInfoText:
+        'Algunas personas pueden experimentar convulsiones al exponerse a luces de colores. Ten precaución si tú o alguien en tu familia tiene epilepsia.',
+      photosensitivityWarningLabelText: 'Más información sobre fotosensibilidad',
+      errorLabelText: 'Error',
+      connectionTimeoutHeaderText: 'Tiempo de conexión agotado',
+      connectionTimeoutMessageText: 'La conexión expiró.',
+      timeoutHeaderText: 'Tiempo agotado',
+      timeoutMessageText:
+        'Tu rostro no se ajustó al óvalo a tiempo. Intenta de nuevo y llena el óvalo con tu rostro.',
+      faceDistanceHeaderText: 'Se detectó movimiento hacia adelante',
+      faceDistanceMessageText: 'Evita acercarte al conectar.',
+      multipleFacesHeaderText: 'Se detectaron varios rostros',
+      multipleFacesMessageText:
+        'Asegúrate de que solo haya un rostro frente a la cámara al conectar.',
+      clientHeaderText: 'Error del cliente',
+      clientMessageText: 'La validación falló por un problema del cliente.',
+      serverHeaderText: 'Error del servidor',
+      serverMessageText: 'No se pudo completar la validación por un problema del servidor.',
+      landscapeHeaderText: 'La orientación horizontal no es compatible',
+      landscapeMessageText: 'Gira tu dispositivo a orientación vertical.',
+      portraitMessageText:
+        'Asegúrate de mantener el dispositivo en orientación vertical durante la validación.',
+      tryAgainText: 'Intentar de nuevo',
+    }),
+    []
+  )
 
   return (
     <div className="min-h-screen bg-brand-surface py-12 px-4">
@@ -283,22 +368,25 @@ function App() {
                 </div>
               ) : null}
 
-              {!error && status === 'ready' && session ? (
-                <FaceLivenessDetector
-                  sessionId={session.sessionId}
-                  region={session.region}
-                  onAnalysisComplete={handleAnalysisComplete}
-                  onError={handleError}
-                  config={{
-                    credentialProvider: config.awsCredentials
-                      ? async () => ({
-                          accessKeyId: config.awsCredentials.accessKeyId,
-                          secretAccessKey: config.awsCredentials.secretAccessKey,
-                          sessionToken: config.awsCredentials.sessionToken,
-                        })
-                      : config.amplifyConfig.Auth
-                  }}
-                />
+              {session && showDetector ? (
+                <div style={{ display: error || status === 'completed' ? 'none' : 'block' }}>
+                  <FaceLivenessDetector
+                    sessionId={session.sessionId}
+                    region={session.region}
+                    onAnalysisComplete={handleAnalysisComplete}
+                    onError={handleError}
+                    displayText={livenessDisplayText}
+                    config={{
+                      credentialProvider: config.awsCredentials
+                        ? async () => ({
+                            accessKeyId: config.awsCredentials.accessKeyId,
+                            secretAccessKey: config.awsCredentials.secretAccessKey,
+                            sessionToken: config.awsCredentials.sessionToken,
+                          })
+                        : config.amplifyConfig.Auth
+                    }}
+                  />
+                </div>
               ) : null}
             </div>
           </div>
