@@ -283,7 +283,7 @@ function App() {
                 </div>
               ) : null}
 
-              {!error && status === 'ready' && session ? (
+              {!error && session && (status === 'ready' || status === 'saving') ? (
                 <FaceLivenessDetector
                   sessionId={session.sessionId}
                   region={session.region}
