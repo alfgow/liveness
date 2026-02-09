@@ -14,9 +14,30 @@ function App() {
   const [status, setStatus] = useState('idle')
   const [session, setSession] = useState(null)
   const [token, setToken] = useState('')
+  const [credentials, setCredentials] = useState(null)
 
   const config = useMemo(() => {
     const runtimeConfig = window.__LIVENESS_CONFIG__ ?? {}
+    const awsAccessKeyId =
+      runtimeConfig.awsAccessKeyId ??
+      import.meta.env.VITE_AWS_ACCESS_KEY_ID ??
+      import.meta.env.AWS_ACCESS_KEY_ID ??
+      ''
+    const awsSecretAccessKey =
+      runtimeConfig.awsSecretAccessKey ??
+      import.meta.env.VITE_AWS_SECRET_ACCESS_KEY ??
+      import.meta.env.AWS_SECRET_ACCESS_KEY ??
+      ''
+    const awsSessionToken =
+      runtimeConfig.awsSessionToken ??
+      import.meta.env.VITE_AWS_SESSION_TOKEN ??
+      import.meta.env.AWS_SESSION_TOKEN ??
+      ''
+    const awsRegion =
+      runtimeConfig.awsRegion ??
+      import.meta.env.VITE_AWS_REGION ??
+      import.meta.env.AWS_REGION ??
+      ''
 
     return {
       apiBaseUrl: runtimeConfig.apiBaseUrl ?? import.meta.env.VITE_API_BASE_URL ?? '',
@@ -50,6 +71,15 @@ function App() {
           },
         },
       },
+      awsCredentials:
+        awsAccessKeyId && awsSecretAccessKey
+          ? {
+              accessKeyId: awsAccessKeyId,
+              secretAccessKey: awsSecretAccessKey,
+              sessionToken: awsSessionToken || undefined,
+            }
+          : null,
+      awsRegion,
     }
   }, [])
 
@@ -74,10 +104,15 @@ function App() {
     }
 
     const identityPoolId = config.amplifyConfig?.Auth?.Cognito?.identityPoolId
-    const region = config.amplifyConfig?.Auth?.Cognito?.region
+    const region = config.amplifyConfig?.Auth?.Cognito?.region || config.awsRegion
+
+    if (config.awsCredentials && region) {
+      setCredentials({ ...config.awsCredentials, region })
+      return
+    }
 
     if (!identityPoolId || !region) {
-      setError('Falta configurar identityPoolId o region para Amplify.')
+      setError('Falta configurar identityPoolId o region, o credenciales AWS válidas.')
       return
     }
 
@@ -122,17 +157,17 @@ function App() {
         throw new Error(authorizeResult?.message ?? 'Token inválido o expirado.')
       }
 
-      const { credentials } = await fetchAuthSession()
-      if (!credentials) {
-        throw new Error('No se pudieron obtener credenciales de AWS.')
-      }
+      const resolvedCredentials = await getCredentials(config, credentials)
 
       const rekognitionClient = new RekognitionClient({
-        region: config.amplifyConfig?.Auth?.Cognito?.region,
+        region:
+          resolvedCredentials.region ||
+          config.amplifyConfig?.Auth?.Cognito?.region ||
+          config.awsRegion,
         credentials: {
-          accessKeyId: credentials.accessKeyId,
-          secretAccessKey: credentials.secretAccessKey,
-          sessionToken: credentials.sessionToken,
+          accessKeyId: resolvedCredentials.accessKeyId,
+          secretAccessKey: resolvedCredentials.secretAccessKey,
+          sessionToken: resolvedCredentials.sessionToken,
         },
       })
 
@@ -145,7 +180,10 @@ function App() {
 
       setSession({
         sessionId: response.SessionId,
-        region: config.amplifyConfig?.Auth?.Cognito?.region,
+        region:
+          resolvedCredentials.region ||
+          config.amplifyConfig?.Auth?.Cognito?.region ||
+          config.awsRegion,
       })
       setStatus('ready')
     }
@@ -154,7 +192,7 @@ function App() {
       setError(err.message ?? 'Ocurrió un error al crear la sesión.')
       setStatus('error')
     })
-  }, [config, token, error])
+  }, [config, token, error, credentials])
 
   const handleAnalysisComplete = async () => {
     if (!session) {
@@ -163,17 +201,14 @@ function App() {
 
     try {
       setStatus('saving')
-      const { credentials } = await fetchAuthSession()
-      if (!credentials) {
-        throw new Error('No se pudieron obtener credenciales de AWS.')
-      }
+      const resolvedCredentials = await getCredentials(config, credentials)
 
       const rekognitionClient = new RekognitionClient({
-        region: session.region,
+        region: session.region || resolvedCredentials.region || config.awsRegion,
         credentials: {
-          accessKeyId: credentials.accessKeyId,
-          secretAccessKey: credentials.secretAccessKey,
-          sessionToken: credentials.sessionToken,
+          accessKeyId: resolvedCredentials.accessKeyId,
+          secretAccessKey: resolvedCredentials.secretAccessKey,
+          sessionToken: resolvedCredentials.sessionToken,
         },
       })
 
@@ -255,7 +290,13 @@ function App() {
                   onAnalysisComplete={handleAnalysisComplete}
                   onError={handleError}
                   config={{
-                    credentialProvider: config.amplifyConfig.Auth
+                    credentialProvider: config.awsCredentials
+                      ? async () => ({
+                          accessKeyId: config.awsCredentials.accessKeyId,
+                          secretAccessKey: config.awsCredentials.secretAccessKey,
+                          sessionToken: config.awsCredentials.sessionToken,
+                        })
+                      : config.amplifyConfig.Auth
                   }}
                 />
               ) : null}
@@ -266,6 +307,23 @@ function App() {
       </div>
     </div>
   )
+}
+
+const getCredentials = async (config, cachedCredentials) => {
+  if (cachedCredentials) {
+    return cachedCredentials
+  }
+
+  if (config.awsCredentials) {
+    return { ...config.awsCredentials, region: config.awsRegion }
+  }
+
+  const { credentials } = await fetchAuthSession()
+  if (!credentials) {
+    throw new Error('No se pudieron obtener credenciales de AWS.')
+  }
+
+  return credentials
 }
 
 const buildEndpoint = (endpoint, token, apiBaseUrl) => {
