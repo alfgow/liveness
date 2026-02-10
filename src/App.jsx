@@ -87,7 +87,8 @@ function App() {
 
   useEffect(() => {
     const { pathname, search } = window.location
-    const pathToken = pathname.replace(/^\/+/, '').trim()
+    const pathSegments = pathname.split('/').filter(Boolean)
+    const pathToken = pathSegments.length ? pathSegments[pathSegments.length - 1].trim() : ''
     const urlToken = new URLSearchParams(search).get('token')
     const resolvedToken =
       pathToken && pathToken !== 'index.html' ? pathToken : urlToken
