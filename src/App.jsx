@@ -95,9 +95,9 @@ function App() {
     const urlToken = new URLSearchParams(search).get('token')
     const hashToken = hash.startsWith('#') ? hash.slice(1).replace(/^\//, '') : ''
     const resolvedToken =
-      pathToken && pathToken !== 'index.html'
-        ? pathToken
-        : urlToken || hashToken
+      urlToken ||
+      hashToken ||
+      (pathToken && pathToken !== 'index.html' ? pathToken : '')
 
     if (!resolvedToken) {
       setError('No se encontró el token en la URL.')
@@ -262,6 +262,16 @@ function App() {
     setShowDetector(false)
   }
 
+  const credentialProvider = async () => {
+    const resolvedCredentials = await getCredentials(config, credentials)
+
+    return {
+      accessKeyId: resolvedCredentials.accessKeyId,
+      secretAccessKey: resolvedCredentials.secretAccessKey,
+      sessionToken: resolvedCredentials.sessionToken,
+    }
+  }
+
   const livenessDisplayText = useMemo(
     () => ({
       a11yVideoLabelText: 'Cámara para validación de vida',
@@ -386,13 +396,7 @@ function App() {
                   onError={handleError}
                   displayText={livenessDisplayText}
                   config={{
-                    credentialProvider: config.awsCredentials
-                      ? async () => ({
-                          accessKeyId: config.awsCredentials.accessKeyId,
-                          secretAccessKey: config.awsCredentials.secretAccessKey,
-                          sessionToken: config.awsCredentials.sessionToken,
-                        })
-                      : config.amplifyConfig.Auth,
+                    credentialProvider,
                   }}
                 />
               ) : null}
