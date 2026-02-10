@@ -16,6 +16,7 @@ function App() {
   const [token, setToken] = useState('')
   const [credentials, setCredentials] = useState(null)
   const [showDetector, setShowDetector] = useState(false)
+  const [tenantId, setTenantId] = useState(null)
   const analysisCompleteRef = useRef(false)
 
   const config = useMemo(() => {
@@ -57,6 +58,10 @@ function App() {
         runtimeConfig.resultEndpoint ??
         import.meta.env.VITE_LIVENESS_RESULT_ENDPOINT ??
         '/api/liveness/result',
+      validationsEndpoint:
+        runtimeConfig.validationsEndpoint ??
+        import.meta.env.VITE_VALIDATIONS_ENDPOINT ??
+        '/api/v1/inquilinos/{{id_inquilino}}/validaciones',
       amplifyConfig: runtimeConfig.amplifyConfig ?? {
         Auth: {
           Cognito: {
@@ -171,10 +176,17 @@ function App() {
     const createSession = async () => {
       setStatus('loading')
       const authorizeResult = await authorize()
+      const resolvedTenantId = authorizeResult?.data?.actor_id
 
       if (authorizeResult?.status && authorizeResult.status !== 'success') {
         throw new Error(authorizeResult?.message ?? 'Token inválido o expirado.')
       }
+
+      if (!resolvedTenantId) {
+        throw new Error('No se encontró actor_id (id_inquilino) en la respuesta de autorización.')
+      }
+
+      setTenantId(resolvedTenantId)
 
       const resolvedCredentials = await getCredentials(config, credentials)
 
@@ -214,7 +226,7 @@ function App() {
   }, [config, token, error, credentials])
 
   const handleAnalysisComplete = async () => {
-    if (!session) {
+    if (!session || !tenantId) {
       return
     }
 
@@ -243,6 +255,7 @@ function App() {
       const result = await rekognitionClient.send(command)
 
       if (result?.Status === 'SUCCEEDED') {
+        await persistValidation(config, tenantId, result)
         setStatus('completed')
         setShowDetector(false)
         return
@@ -438,6 +451,60 @@ const buildEndpoint = (endpoint, token, apiBaseUrl) => {
   }
 
   return `${apiBaseUrl ?? ''}${normalized}`
+}
+
+
+const buildValidationsEndpoint = (config, tenantId) => {
+  if (!tenantId || !config?.validationsEndpoint) {
+    return ''
+  }
+
+  const endpointWithId = config.validationsEndpoint
+    .replace('{{id_inquilino}}', String(tenantId))
+    .replace('{id_inquilino}', String(tenantId))
+    .replace(':id_inquilino', String(tenantId))
+
+  if (endpointWithId.startsWith('http')) {
+    return endpointWithId
+  }
+
+  return `${config.apiBaseUrl ?? ''}${endpointWithId}`
+}
+
+const persistValidation = async (config, tenantId, result) => {
+  const validationsUrl = buildValidationsEndpoint(config, tenantId)
+
+  if (!validationsUrl) {
+    throw new Error('No se encontró el endpoint para persistir validaciones.')
+  }
+
+  const headers = { 'Content-Type': 'application/json' }
+  if (config.apiToken) {
+    headers.Authorization = `Bearer ${config.apiToken}`
+  }
+
+  const payload = {
+    liveness_process: {
+      AuditImages: result?.AuditImages ?? [],
+      Challenge: {
+        Type: result?.Challenge?.Type ?? 'FaceMovementAndLightChallenge',
+        Version: result?.Challenge?.Version ?? '2.0.0',
+      },
+      Confidence: result?.Confidence,
+      SessionId: result?.SessionId,
+      Status: result?.Status,
+    },
+  }
+
+  const response = await fetch(validationsUrl, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify(payload),
+  })
+
+  if (!response.ok) {
+    throw new Error('No se pudo persistir el resultado de liveness.')
+  }
 }
 
 export default App
