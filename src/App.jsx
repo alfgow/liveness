@@ -484,7 +484,7 @@ const persistValidation = async (config, tenantId, result) => {
   }
 
   const payload = {
-    liveness_process: {
+    liveness_process: JSON.stringify({
       AuditImages: result?.AuditImages ?? [],
       Challenge: {
         Type: result?.Challenge?.Type ?? 'FaceMovementAndLightChallenge',
@@ -493,7 +493,7 @@ const persistValidation = async (config, tenantId, result) => {
       Confidence: result?.Confidence,
       SessionId: result?.SessionId,
       Status: result?.Status,
-    },
+    }),
   }
 
   const response = await fetch(validationsUrl, {
