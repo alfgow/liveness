@@ -64,6 +64,9 @@ function App() {
               runtimeConfig.identityPoolId ??
               import.meta.env.VITE_COGNITO_IDENTITY_POOL_ID ??
               '',
+            allowGuestAccess:
+              runtimeConfig.allowGuestAccess ??
+              (import.meta.env.VITE_COGNITO_ALLOW_GUEST_ACCESS ?? 'true') !== 'false',
             region:
               runtimeConfig.cognitoRegion ??
               import.meta.env.VITE_COGNITO_REGION ??
@@ -86,12 +89,15 @@ function App() {
   }, [])
 
   useEffect(() => {
-    const { pathname, search } = window.location
+    const { pathname, search, hash } = window.location
     const pathSegments = pathname.split('/').filter(Boolean)
     const pathToken = pathSegments.length ? pathSegments[pathSegments.length - 1].trim() : ''
     const urlToken = new URLSearchParams(search).get('token')
+    const hashToken = hash.startsWith('#') ? hash.slice(1).replace(/^\//, '') : ''
     const resolvedToken =
-      pathToken && pathToken !== 'index.html' ? pathToken : urlToken
+      pathToken && pathToken !== 'index.html'
+        ? pathToken
+        : urlToken || hashToken
 
     if (!resolvedToken) {
       setError('No se encontró el token en la URL.')

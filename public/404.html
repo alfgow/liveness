@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Redirigiendo...</title>
+    <script>
+      (function redirectToApp() {
+        const path = window.location.pathname || '/'
+        const segments = path.split('/').filter(Boolean)
+        const token = segments.length ? segments[segments.length - 1] : ''
+        const destination = token
+          ? `/?token=${encodeURIComponent(token)}${window.location.search ? `&${window.location.search.slice(1)}` : ''}`
+          : '/'
+
+        window.location.replace(destination)
+      })()
+    </script>
+  </head>
+  <body></body>
+</html>
