@@ -33,6 +33,8 @@ const FACE_MATCH_REVIEW_MIN_THRESHOLD = Number(process.env.FACE_MATCH_REVIEW_MIN
 const ALGORITHM_VERSION = process.env.LIVENESS_ALGORITHM_VERSION || 'rekognition-face-liveness-v1';
 const EVIDENCE_RETENTION_DAYS = Number(process.env.LIVENESS_EVIDENCE_RETENTION_DAYS || 0);
 const APPLY_EVIDENCE_LIFECYCLE = process.env.LIVENESS_APPLY_LIFECYCLE_POLICY === 'true';
+const EVIDENCE_KMS_KEY_ID = process.env.LIVENESS_EVIDENCE_KMS_KEY_ID;
+const ALLOW_SELFIE_KEY_OVERRIDE = process.env.LIVENESS_ALLOW_SELFIE_KEY_OVERRIDE === 'true';
 const AWS_ACCESS_KEY_ID = envFirst('LIVENESS_ACCESS_KEY_ID', 'AWS_ACCESS_KEY_ID');
 const AWS_SECRET_ACCESS_KEY = envFirst('LIVENESS_SECRET_ACCESS_KEY', 'AWS_SECRET_ACCESS_KEY');
 const AWS_SESSION_TOKEN = envFirst('LIVENESS_SESSION_TOKEN', 'AWS_SESSION_TOKEN');
@@ -60,6 +62,49 @@ const s3 = new S3Client({
 
 const validationResultsBySession = new Map();
 
+const safeId = (value) => String(value || '')
+  .trim()
+  .replace(/[^a-zA-Z0-9._-]/g, '_')
+  .slice(0, 120);
+
+const sanitizeLogMetadata = (metadata = {}) => {
+  const sensitiveKeys = new Set(['bytes', 'Body', 'AuditImages', 'ReferenceImage', 'full_response', 'image', 'photo', 'selfie']);
+
+  return Object.entries(metadata).reduce((acc, [key, value]) => {
+    if (sensitiveKeys.has(key)) {
+      acc[key] = '[REDACTED]';
+      return acc;
+    }
+
+    if (value instanceof Error) {
+      acc[key] = value.message;
+      return acc;
+    }
+
+    if (typeof value === 'string' && value.length > 350) {
+      acc[key] = `${value.slice(0, 347)}...`;
+      return acc;
+    }
+
+    acc[key] = value;
+    return acc;
+  }, {});
+};
+
+const logEvent = ({ level = 'info', event, SessionId, tenantId, ...metadata }) => {
+  const payload = {
+    level,
+    event,
+    SessionId: SessionId ? safeId(SessionId) : undefined,
+    tenantId: tenantId ? safeId(tenantId) : undefined,
+    timestamp: new Date().toISOString(),
+    ...sanitizeLogMetadata(metadata),
+  };
+
+  const logger = level === 'error' ? console.error : console.log;
+  logger(JSON.stringify(payload));
+};
+
 const streamToBuffer = async (stream) => {
   const chunks = [];
   for await (const chunk of stream) {
@@ -81,11 +126,38 @@ const buildCanonicalSelfieKey = ({ tenant_id, prospect_id }) => {
 
 const normalizeEvidencePrefix = (prefix) => prefix.replace(/^\/+|\/+$/g, '');
 
+const ensureObjectWithinPrefix = (key, prefix) => {
+  const normalizedPrefix = normalizeEvidencePrefix(prefix);
+  const normalizedKey = normalizeEvidencePrefix(key);
+
+  return normalizedKey.startsWith(`${normalizedPrefix}/`) || normalizedKey === normalizedPrefix;
+};
+
 const buildEvidenceObjectKey = ({ tenant_id, session_id }) => {
   const normalizedPrefix = normalizeEvidencePrefix(EVIDENCE_PREFIX);
-  const tenant = tenant_id || 'default';
+  const tenant = safeId(tenant_id || 'default');
+  const session = safeId(session_id);
 
-  return `${normalizedPrefix}/${tenant}/${session_id}/canonical.jpg`;
+  return `${normalizedPrefix}/${tenant}/${session}/canonical.jpg`;
+};
+
+const assertAllowedSelfieKey = ({ tenant_id, prospect_id, selfie_key }) => {
+  const canonicalKey = buildCanonicalSelfieKey({ tenant_id, prospect_id });
+
+  if (!selfie_key || selfie_key === canonicalKey) {
+    return canonicalKey;
+  }
+
+  if (!ALLOW_SELFIE_KEY_OVERRIDE) {
+    throw new Error('selfie_key no permitido. Debe usarse únicamente la selfie de referencia canónica.');
+  }
+
+  const allowedPrefix = canonicalKey.split('/').slice(0, -1).join('/');
+  if (!selfie_key.startsWith(`${allowedPrefix}/`)) {
+    throw new Error('selfie_key fuera del prefijo permitido para el prospecto.');
+  }
+
+  return selfie_key;
 };
 
 const getAuditImageQualityScore = (auditImage, index) => {
@@ -159,13 +231,25 @@ const applyEvidenceLifecyclePolicy = async () => {
           Expiration: {
             Days: EVIDENCE_RETENTION_DAYS,
           },
+          NoncurrentVersionExpiration: {
+            NoncurrentDays: EVIDENCE_RETENTION_DAYS,
+          },
+          AbortIncompleteMultipartUpload: {
+            DaysAfterInitiation: 7,
+          },
         },
       ],
     },
   });
 
   await s3.send(lifecycleCommand);
-  console.log(`Lifecycle policy aplicada para ${EVIDENCE_BUCKET} (${EVIDENCE_RETENTION_DAYS} días).`);
+  logEvent({
+    event: 'evidence.lifecycle.applied',
+    tenantId: 'system',
+    retentionDays: EVIDENCE_RETENTION_DAYS,
+    bucket: EVIDENCE_BUCKET,
+    prefix: EVIDENCE_PREFIX,
+  });
 };
 
 const uploadCanonicalEvidence = async ({ session_id, tenant_id, canonicalEvidence }) => {
@@ -190,11 +274,17 @@ const uploadCanonicalEvidence = async ({ session_id, tenant_id, canonicalEvidenc
 
   const evidenceKey = buildEvidenceObjectKey({ tenant_id, session_id });
 
+  if (!ensureObjectWithinPrefix(evidenceKey, EVIDENCE_PREFIX)) {
+    throw new Error('Intento de escritura fuera del prefijo de evidencia permitido.');
+  }
+
   await s3.send(new PutObjectCommand({
     Bucket: EVIDENCE_BUCKET,
     Key: evidenceKey,
     Body: canonicalBytes,
     ContentType: 'image/jpeg',
+    ServerSideEncryption: 'aws:kms',
+    ...(EVIDENCE_KMS_KEY_ID ? { SSEKMSKeyId: EVIDENCE_KMS_KEY_ID } : {}),
     Metadata: {
       sessionid: session_id,
       tenantid: tenant_id || 'default',
@@ -206,7 +296,6 @@ const uploadCanonicalEvidence = async ({ session_id, tenant_id, canonicalEvidenc
   return {
     bucket: EVIDENCE_BUCKET,
     key: evidenceKey,
-    s3Uri: `s3://${EVIDENCE_BUCKET}/${evidenceKey}`,
   };
 };
 
@@ -215,7 +304,7 @@ const compareSelfieVsLiveness = async ({ tenant_id, prospect_id, selfie_key, liv
     throw new Error('Falta variable SELFIE_BUCKET para recuperar la selfie canónica del prospecto.');
   }
 
-  const canonicalSelfieKey = selfie_key || buildCanonicalSelfieKey({ tenant_id, prospect_id });
+  const canonicalSelfieKey = assertAllowedSelfieKey({ tenant_id, prospect_id, selfie_key });
   const selfieObject = await s3.send(new GetObjectCommand({
     Bucket: SELFIE_BUCKET,
     Key: canonicalSelfieKey,
@@ -297,15 +386,14 @@ app.post('/api/liveness/session', async (_req, res) => {
     const command = new CreateFaceLivenessSessionCommand({});
 
     const response = await rekognition.send(command);
-    console.log('Sesión creada:', response.SessionId);
+    logEvent({ event: 'liveness.session.created', SessionId: response.SessionId });
 
     res.json({
       session_id: response.SessionId,
       region: REKOGNITION_REGION,
     });
   } catch (error) {
-    console.error('Error creando sesión:', error.message);
-    console.error('Stack:', error.stack);
+    logEvent({ level: 'error', event: 'liveness.session.error', error: error.message });
     res.status(500).json({ error: 'Error al crear la sesión de liveness', details: error.message });
   }
 });
@@ -328,7 +416,7 @@ app.post('/api/liveness/result', async (req, res) => {
     });
 
     const response = await rekognition.send(command);
-    console.log('Resultados obtenidos:', response.Status);
+    logEvent({ event: 'liveness.result.fetched', SessionId: session_id, tenantId: tenant_id, status: response.Status });
 
     if (response.Status !== 'SUCCEEDED') {
       return res.status(400).json({ status: 'failed', message: 'La validación no fue exitosa o expiró.' });
@@ -379,7 +467,6 @@ app.post('/api/liveness/result', async (req, res) => {
       evidence: {
         key: evidenceStorage.key,
         bucket: evidenceStorage.bucket,
-        s3Uri: evidenceStorage.s3Uri,
         source: canonicalEvidence.source,
         selectionStrategy: canonicalEvidence.strategy,
       },
@@ -413,10 +500,15 @@ app.post('/api/liveness/result', async (req, res) => {
         faceMatchScore: validationRecord.faceMatchScore,
         algorithmVersion: validationRecord.algorithmVersion,
       },
-      full_response: response,
     });
   } catch (error) {
-    console.error('Error obteniendo resultados:', error);
+    logEvent({
+      level: 'error',
+      event: 'liveness.result.error',
+      SessionId: session_id,
+      tenantId: tenant_id,
+      error: error.message,
+    });
     return res.status(500).json({ error: 'Error al obtener los resultados', details: error.message });
   }
 });
@@ -432,9 +524,9 @@ app.get('/api/liveness/validation/:sessionId', (req, res) => {
 });
 
 applyEvidenceLifecyclePolicy().catch((error) => {
-  console.error('No se pudo aplicar lifecycle policy de evidencias:', error.message);
+  logEvent({ level: 'error', event: 'evidence.lifecycle.error', error: error.message });
 });
 
 app.listen(PORT, () => {
-  console.log(`Servidor de Liveness corriendo en http://localhost:${PORT}`);
+  logEvent({ event: 'liveness.server.started', tenantId: 'system', port: PORT });
 });

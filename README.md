@@ -42,6 +42,8 @@ Variables para evidencias canónicas y trazabilidad:
 - `LIVENESS_ALGORITHM_VERSION` (default `rekognition-face-liveness-v1`)
 - `LIVENESS_APPLY_LIFECYCLE_POLICY` (`true|false`, default `false`)
 - `LIVENESS_EVIDENCE_RETENTION_DAYS` (si `> 0` y lifecycle habilitado, aplica borrado automático)
+- `LIVENESS_EVIDENCE_KMS_KEY_ID` (opcional, KMS key específica para cifrado SSE-KMS de evidencias)
+- `LIVENESS_ALLOW_SELFIE_KEY_OVERRIDE` (`true|false`, default `false`; mantener `false` para forzar selfie canónica)
 
 Credenciales backend (orden de preferencia):
 
@@ -62,7 +64,7 @@ Cuando `/api/liveness/result` devuelve `SUCCEEDED`, el backend ahora:
    - `livenessConfidence`
    - `faceMatchScore`
    - `algorithmVersion`
-4. Persiste en el registro de validación interno la ubicación de S3 (`bucket`, `key`, `s3Uri`) para trazabilidad.
+4. Persiste en el registro de validación interno la ubicación de S3 (`bucket`, `key`) para trazabilidad.
 5. Opcionalmente aplica lifecycle policy en el bucket de evidencias para retención y borrado automático.
 
 Además, puedes consultar un registro puntual con:
@@ -113,3 +115,94 @@ VITE_COGNITO_IDENTITY_POOL_ID=us-east-1:xxxx
 VITE_COGNITO_REGION=us-east-1
 VITE_REKOGNITION_REGION=us-east-1
 ```
+
+## Seguridad, cumplimiento y gobierno de biometría
+
+### 1) IAM mínimo privilegio (lectura selfie + escritura evidencia en prefijo)
+
+El backend debe usar una policy IAM **sin comodines amplios** y separada por propósito:
+
+- `s3:GetObject` únicamente para la selfie de referencia del prospecto.
+- `s3:PutObject` únicamente en `s3://<LIVENESS_EVIDENCE_BUCKET>/<LIVENESS_EVIDENCE_PREFIX>/*`.
+- `kms:Encrypt`, `kms:Decrypt`, `kms:GenerateDataKey` y `kms:DescribeKey` únicamente sobre la KMS key configurada.
+
+Ejemplo orientativo:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadReferenceSelfieOnly",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject"],
+      "Resource": "arn:aws:s3:::<SELFIE_BUCKET>/tenants/*/prospects/*/selfie.jpg"
+    },
+    {
+      "Sid": "WriteEvidencePrefixOnly",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject"],
+      "Resource": "arn:aws:s3:::<LIVENESS_EVIDENCE_BUCKET>/<LIVENESS_EVIDENCE_PREFIX>/*"
+    },
+    {
+      "Sid": "UseKmsForEvidenceOnly",
+      "Effect": "Allow",
+      "Action": ["kms:Encrypt", "kms:Decrypt", "kms:GenerateDataKey", "kms:DescribeKey"],
+      "Resource": "arn:aws:kms:<region>:<account-id>:key/<key-id>"
+    }
+  ]
+}
+```
+
+### 2) Cifrado S3 y no exposición pública
+
+El backend carga evidencia con `ServerSideEncryption: aws:kms` y opcionalmente `SSEKMSKeyId` con `LIVENESS_EVIDENCE_KMS_KEY_ID`.
+
+Además:
+
+- Mantén habilitado `S3 Block Public Access` en los buckets de selfie y evidencia.
+- No generar presigned URLs públicas para imágenes biométricas.
+- El API devuelve solo `bucket` y `key` para trazabilidad; no expone URL pública.
+
+### 3) Correlación de logs por SessionId y tenantId
+
+Se implementó logging estructurado JSON con campos:
+
+- `event`
+- `SessionId`
+- `tenantId`
+- `timestamp`
+
+Y se evita volcar datos biométricos sensibles en logs (bytes/imágenes/full payload).
+
+### 4) Retención y borrado de biometría
+
+Para evidencias en S3:
+
+- `LIVENESS_APPLY_LIFECYCLE_POLICY=true`
+- `LIVENESS_EVIDENCE_RETENTION_DAYS=<días>`
+
+La policy aplicada considera:
+
+- `Expiration` para versiones actuales
+- `NoncurrentVersionExpiration` para versiones no actuales
+- `AbortIncompleteMultipartUpload` a 7 días
+
+Recomendación de cumplimiento:
+
+- Definir retención diferenciada para aprobados/rechazados según contrato y base legal.
+- Registrar en DPIA/ROPA la temporalidad y justificación.
+- Asegurar borrado en backups y réplicas según SLA.
+
+### 5) Consentimiento y finalidad del tratamiento
+
+Debes documentar (y conservar evidencia de) consentimiento explícito del usuario final antes del flujo biométrico:
+
+- Finalidad específica (validación de vida y prevención de fraude).
+- Base legal aplicable.
+- Tiempo de conservación.
+- Mecanismo de revocación y derechos ARCO/GDPR equivalentes.
+- Terceros/proveedores involucrados (ej. AWS Rekognition).
+
+Recomendado: almacenar `consent_version`, `consent_timestamp`, `tenant_id`, `prospect_id` y huella del texto aceptado.
+
