@@ -29,7 +29,9 @@ Variables para liveness + face match:
 - `REKOGNITION_REGION` (default `us-east-1`)
 - `S3_SELFIE_REGION` (default `REKOGNITION_REGION`)
 - `FACE_MATCH_THRESHOLD` (default `92`)
-- `LIVENESS_MIN_CONFIDENCE` (default `90`)
+- `LIVENESS_MIN_CONFIDENCE` (default `90`, umbral de aprobación automática)
+- `LIVENESS_REVIEW_MIN_CONFIDENCE` (default `85`, inicio de zona gris para revisión manual)
+- `FACE_MATCH_REVIEW_MIN_THRESHOLD` (default `85`, mínimo para evitar rechazo automático por match)
 - `SELFIE_BUCKET` (**requerida**)
 - `SELFIE_KEY_TEMPLATE` (default `tenants/{tenant_id}/prospects/{prospect_id}/selfie.jpg`)
 
@@ -66,6 +68,24 @@ Cuando `/api/liveness/result` devuelve `SUCCEEDED`, el backend ahora:
 Además, puedes consultar un registro puntual con:
 
 - `GET /api/liveness/validation/:sessionId`
+
+
+## Reglas de decisión (backend)
+
+El backend calcula una decisión explícita por cada sesión usando `livenessStatus`, `livenessConfidence` y `faceMatchScore`:
+
+- **Aprobar (`approved`)**: `livenessStatus = SUCCEEDED` + `livenessConfidence >= LIVENESS_MIN_CONFIDENCE` + `faceMatchScore >= FACE_MATCH_THRESHOLD`.
+- **Revisión manual (`manual_review`)**: sesión exitosa pero score en zona gris (`livenessConfidence >= LIVENESS_REVIEW_MIN_CONFIDENCE` y `faceMatchScore >= FACE_MATCH_REVIEW_MIN_THRESHOLD` sin cumplir umbral de aprobación).
+- **Rechazar (`rejected`)**:
+  - liveness fallido (`livenessStatus != SUCCEEDED`), o
+  - `faceMatchScore < FACE_MATCH_REVIEW_MIN_THRESHOLD`, o
+  - confianza por debajo de umbral mínimo de revisión.
+
+Además se registra `decision_reason` para auditoría/debugging y se expone en:
+
+- Respuesta de `POST /api/liveness/result`.
+- Registro interno consultable en `GET /api/liveness/validation/:sessionId`.
+- Payload hacia API de validaciones (`liveness_process` ampliado y campos paralelos `liveness_decision`, `liveness_decision_reason`, `liveness_approved`).
 
 ## Ejemplo `.env`
 
