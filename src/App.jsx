@@ -24,22 +24,23 @@ function App() {
     const awsAccessKeyId =
       runtimeConfig.awsAccessKeyId ??
       import.meta.env.VITE_AWS_ACCESS_KEY_ID ??
-      import.meta.env.AWS_ACCESS_KEY_ID ??
+      import.meta.env.VITE_LIVENESS_ACCESS_KEY_ID ??
       ''
     const awsSecretAccessKey =
       runtimeConfig.awsSecretAccessKey ??
       import.meta.env.VITE_AWS_SECRET_ACCESS_KEY ??
-      import.meta.env.AWS_SECRET_ACCESS_KEY ??
+      import.meta.env.VITE_LIVENESS_SECRET_ACCESS_KEY ??
       ''
     const awsSessionToken =
       runtimeConfig.awsSessionToken ??
       import.meta.env.VITE_AWS_SESSION_TOKEN ??
-      import.meta.env.AWS_SESSION_TOKEN ??
+      import.meta.env.VITE_LIVENESS_SESSION_TOKEN ??
       ''
     const awsRegion =
       runtimeConfig.awsRegion ??
       import.meta.env.VITE_AWS_REGION ??
-      import.meta.env.AWS_REGION ??
+      import.meta.env.VITE_REKOGNITION_REGION ??
+      import.meta.env.VITE_LIVENESS_REGION ??
       ''
 
     return {

@@ -11,11 +11,26 @@ import express from 'express';
 
 dotenv.config();
 
+const envFirst = (...keys) => keys.map((key) => process.env[key]).find((value) => value);
+
 const app = express();
 const PORT = process.env.LIVENESS_PORT || 3001;
 const FACE_MATCH_THRESHOLD = Number(process.env.FACE_MATCH_THRESHOLD || 92);
 const SELFIE_BUCKET = process.env.SELFIE_BUCKET;
 const SELFIE_KEY_TEMPLATE = process.env.SELFIE_KEY_TEMPLATE || 'tenants/{tenant_id}/prospects/{prospect_id}/selfie.jpg';
+const REKOGNITION_REGION = envFirst('REKOGNITION_REGION', 'AWS_REGION') || 'us-east-1';
+const S3_SELFIE_REGION = envFirst('S3_SELFIE_REGION', 'REKOGNITION_REGION', 'AWS_REGION') || 'us-east-1';
+const AWS_ACCESS_KEY_ID = envFirst('LIVENESS_ACCESS_KEY_ID', 'AWS_ACCESS_KEY_ID');
+const AWS_SECRET_ACCESS_KEY = envFirst('LIVENESS_SECRET_ACCESS_KEY', 'AWS_SECRET_ACCESS_KEY');
+const AWS_SESSION_TOKEN = envFirst('LIVENESS_SESSION_TOKEN', 'AWS_SESSION_TOKEN');
+
+const sharedCredentials = AWS_ACCESS_KEY_ID && AWS_SECRET_ACCESS_KEY
+  ? {
+    accessKeyId: AWS_ACCESS_KEY_ID,
+    secretAccessKey: AWS_SECRET_ACCESS_KEY,
+    ...(AWS_SESSION_TOKEN ? { sessionToken: AWS_SESSION_TOKEN } : {}),
+  }
+  : undefined;
 
 // Configurar CORS
 // Esto es importante para que el frontend local (e.g. localhost:5174) pueda comunicarse
@@ -24,11 +39,13 @@ app.use(express.json());
 
 // Configurar AWS Client
 const rekognition = new RekognitionClient({
-  region: process.env.AWS_REGION || 'us-east-1',
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-  },
+  region: REKOGNITION_REGION,
+  ...(sharedCredentials ? { credentials: sharedCredentials } : {}),
+});
+
+const s3 = new S3Client({
+  region: S3_SELFIE_REGION,
+  ...(sharedCredentials ? { credentials: sharedCredentials } : {}),
 });
 
 const s3 = new S3Client({
@@ -155,7 +172,7 @@ app.post('/api/liveness/session', async (req, res) => {
     // Devolvemos el session_id que espera el frontend
     res.json({
       session_id: response.SessionId,
-      region: process.env.AWS_REGION || 'us-east-1',
+      region: REKOGNITION_REGION,
     });
   } catch (error) {
     console.error('Error creando sesión:', error.message);
