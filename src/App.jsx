@@ -1,9 +1,5 @@
 import { FaceLivenessDetector } from '@aws-amplify/ui-react-liveness'
-import {
-  CreateFaceLivenessSessionCommand,
-  GetFaceLivenessSessionResultsCommand,
-  RekognitionClient,
-} from '@aws-sdk/client-rekognition'
+import { CreateFaceLivenessSessionCommand, RekognitionClient } from '@aws-sdk/client-rekognition'
 import { Amplify } from 'aws-amplify'
 import { fetchAuthSession } from 'aws-amplify/auth'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -17,6 +13,8 @@ function App() {
   const [credentials, setCredentials] = useState(null)
   const [showDetector, setShowDetector] = useState(false)
   const [tenantId, setTenantId] = useState(null)
+  const [prospectId, setProspectId] = useState(null)
+  const [selfieKey, setSelfieKey] = useState('')
   const analysisCompleteRef = useRef(false)
 
   const config = useMemo(() => {
@@ -178,6 +176,8 @@ function App() {
       setStatus('loading')
       const authorizeResult = await authorize()
       const resolvedTenantId = authorizeResult?.data?.actor_id
+      const resolvedProspectId = authorizeResult?.data?.prospect_id ?? authorizeResult?.data?.id
+      const resolvedSelfieKey = authorizeResult?.data?.selfie_key ?? ''
 
       if (authorizeResult?.status && authorizeResult.status !== 'success') {
         throw new Error(authorizeResult?.message ?? 'Token inválido o expirado.')
@@ -188,6 +188,8 @@ function App() {
       }
 
       setTenantId(resolvedTenantId)
+      setProspectId(resolvedProspectId ?? null)
+      setSelfieKey(resolvedSelfieKey)
 
       const resolvedCredentials = await getCredentials(config, credentials)
 
@@ -239,24 +241,17 @@ function App() {
 
     try {
       setStatus('saving')
-      const resolvedCredentials = await getCredentials(config, credentials)
 
-      const rekognitionClient = new RekognitionClient({
-        region: session.region || resolvedCredentials.region || config.awsRegion,
-        credentials: {
-          accessKeyId: resolvedCredentials.accessKeyId,
-          secretAccessKey: resolvedCredentials.secretAccessKey,
-          sessionToken: resolvedCredentials.sessionToken,
-        },
+      const livenessResult = await getBackendLivenessResult({
+        config,
+        sessionId: session.sessionId,
+        tenantId,
+        prospectId,
+        selfieKey,
       })
 
-      const command = new GetFaceLivenessSessionResultsCommand({
-        SessionId: session.sessionId,
-      })
-      const result = await rekognitionClient.send(command)
-
-      if (result?.Status === 'SUCCEEDED') {
-        await persistValidation(config, tenantId, result)
+      if (livenessResult?.status === 'success') {
+        await persistValidation(config, tenantId, livenessResult)
         setStatus('completed')
         setShowDetector(false)
         return
@@ -486,15 +481,24 @@ const persistValidation = async (config, tenantId, result) => {
 
   const payload = {
     liveness_process: JSON.stringify({
-      AuditImages: result?.AuditImages ?? [],
+      AuditImages: result?.full_response?.AuditImages ?? [],
       Challenge: {
-        Type: result?.Challenge?.Type ?? 'FaceMovementAndLightChallenge',
-        Version: result?.Challenge?.Version ?? '2.0.0',
+        Type: result?.full_response?.Challenge?.Type ?? 'FaceMovementAndLightChallenge',
+        Version: result?.full_response?.Challenge?.Version ?? '2.0.0',
       },
-      Confidence: result?.Confidence,
-      SessionId: result?.SessionId,
-      Status: result?.Status,
+      Confidence: result?.confidence,
+      SessionId: result?.face_verification?.session_id,
+      Status: result?.full_response?.Status,
+      decision: result?.decision,
+      decision_reason: result?.decision_reason,
+      approved: result?.approved,
+      face_verification: result?.face_verification,
+      metadata: result?.metadata,
+      evidence: result?.evidence,
     }),
+    liveness_decision: result?.decision ?? null,
+    liveness_decision_reason: result?.decision_reason ?? null,
+    liveness_approved: result?.approved ?? null,
   }
 
   const response = await fetch(validationsUrl, {
@@ -506,6 +510,36 @@ const persistValidation = async (config, tenantId, result) => {
   if (!response.ok) {
     throw new Error('No se pudo persistir el resultado de liveness.')
   }
+}
+
+const getBackendLivenessResult = async ({ config, sessionId, tenantId, prospectId, selfieKey }) => {
+  const resultUrl = buildEndpoint(config.resultEndpoint, '', config.livenessBaseUrl)
+
+  if (!resultUrl) {
+    throw new Error('No se encontró el endpoint de resultado de liveness.')
+  }
+
+  const headers = { 'Content-Type': 'application/json' }
+  if (config.apiToken) {
+    headers.Authorization = `Bearer ${config.apiToken}`
+  }
+
+  const response = await fetch(resultUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      session_id: sessionId,
+      tenant_id: tenantId,
+      prospect_id: prospectId,
+      selfie_key: selfieKey || undefined,
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error('No se pudo recuperar el resultado desde el backend.')
+  }
+
+  return response.json()
 }
 
 export default App

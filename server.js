@@ -28,6 +28,8 @@ const S3_SELFIE_REGION = envFirst('S3_SELFIE_REGION', 'REKOGNITION_REGION', 'AWS
 const EVIDENCE_BUCKET = process.env.LIVENESS_EVIDENCE_BUCKET;
 const EVIDENCE_PREFIX = process.env.LIVENESS_EVIDENCE_PREFIX || 'liveness-evidence';
 const LIVENESS_MIN_CONFIDENCE = Number(process.env.LIVENESS_MIN_CONFIDENCE || 90);
+const LIVENESS_REVIEW_MIN_CONFIDENCE = Number(process.env.LIVENESS_REVIEW_MIN_CONFIDENCE || 85);
+const FACE_MATCH_REVIEW_MIN_THRESHOLD = Number(process.env.FACE_MATCH_REVIEW_MIN_THRESHOLD || 85);
 const ALGORITHM_VERSION = process.env.LIVENESS_ALGORITHM_VERSION || 'rekognition-face-liveness-v1';
 const EVIDENCE_RETENTION_DAYS = Number(process.env.LIVENESS_EVIDENCE_RETENTION_DAYS || 0);
 const APPLY_EVIDENCE_LIFECYCLE = process.env.LIVENESS_APPLY_LIFECYCLE_POLICY === 'true';
@@ -246,6 +248,50 @@ const compareSelfieVsLiveness = async ({ tenant_id, prospect_id, selfie_key, liv
   };
 };
 
+const buildLivenessDecision = ({
+  livenessStatus,
+  livenessConfidence,
+  faceMatchScore,
+}) => {
+  if (livenessStatus !== 'SUCCEEDED') {
+    return {
+      decision: 'rejected',
+      decision_reason: 'liveness_failed',
+      approved: false,
+    };
+  }
+
+  if (faceMatchScore < FACE_MATCH_REVIEW_MIN_THRESHOLD) {
+    return {
+      decision: 'rejected',
+      decision_reason: 'face_match_below_min_threshold',
+      approved: false,
+    };
+  }
+
+  if (livenessConfidence >= LIVENESS_MIN_CONFIDENCE && faceMatchScore >= FACE_MATCH_THRESHOLD) {
+    return {
+      decision: 'approved',
+      decision_reason: 'liveness_and_face_match_above_thresholds',
+      approved: true,
+    };
+  }
+
+  if (livenessConfidence >= LIVENESS_REVIEW_MIN_CONFIDENCE && faceMatchScore >= FACE_MATCH_REVIEW_MIN_THRESHOLD) {
+    return {
+      decision: 'manual_review',
+      decision_reason: 'score_in_gray_zone',
+      approved: false,
+    };
+  }
+
+  return {
+    decision: 'rejected',
+    decision_reason: 'confidence_below_review_threshold',
+    approved: false,
+  };
+};
+
 app.post('/api/liveness/session', async (_req, res) => {
   try {
     const command = new CreateFaceLivenessSessionCommand({});
@@ -288,7 +334,6 @@ app.post('/api/liveness/result', async (req, res) => {
       return res.status(400).json({ status: 'failed', message: 'La validación no fue exitosa o expiró.' });
     }
 
-    const isLive = response.Confidence >= LIVENESS_MIN_CONFIDENCE;
     const canonicalEvidence = selectCanonicalEvidence(response);
 
     if (!canonicalEvidence) {
@@ -311,7 +356,11 @@ app.post('/api/liveness/result', async (req, res) => {
       livenessEvidence: canonicalEvidence,
     });
 
-    const approved = isLive && faceVerification.match;
+    const decisionResult = buildLivenessDecision({
+      livenessStatus: response.Status,
+      livenessConfidence: response.Confidence,
+      faceMatchScore: faceVerification.score,
+    });
 
     const validationRecord = {
       SessionId: session_id,
@@ -320,8 +369,12 @@ app.post('/api/liveness/result', async (req, res) => {
       livenessConfidence: response.Confidence,
       faceMatchScore: faceVerification.score,
       faceMatchThreshold: faceVerification.threshold,
+      faceMatchReviewThreshold: FACE_MATCH_REVIEW_MIN_THRESHOLD,
+      livenessReviewThreshold: LIVENESS_REVIEW_MIN_CONFIDENCE,
       match: faceVerification.match,
-      approved,
+      approved: decisionResult.approved,
+      decision: decisionResult.decision,
+      decision_reason: decisionResult.decision_reason,
       algorithmVersion: ALGORITHM_VERSION,
       evidence: {
         key: evidenceStorage.key,
@@ -337,9 +390,11 @@ app.post('/api/liveness/result', async (req, res) => {
 
     return res.json({
       status: 'success',
-      live: isLive,
+      live: response.Status === 'SUCCEEDED',
       confidence: response.Confidence,
-      approved,
+      approved: decisionResult.approved,
+      decision: decisionResult.decision,
+      decision_reason: decisionResult.decision_reason,
       face_verification: {
         session_id,
         score: faceVerification.score,
