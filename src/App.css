@@ -119,6 +119,7 @@
   background-color: var(--brand-surface);
   border-bottom: 1px solid rgba(251, 188, 188, 0.2);
   padding: 1.5rem 2rem;
+  text-align: center;
 }
 
 .card-title {
