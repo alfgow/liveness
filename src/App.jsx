@@ -177,7 +177,10 @@ function App() {
       const authorizeResult = await authorize()
       const resolvedTenantId = authorizeResult?.data?.actor_id
       const resolvedProspectId = authorizeResult?.data?.prospect_id ?? authorizeResult?.data?.id
-      const resolvedSelfieKey = authorizeResult?.data?.selfie_key ?? ''
+      const resolvedSelfieKey =
+        authorizeResult?.data?.selfie_key ??
+        authorizeResult?.data?.s3_key ??
+        ''
 
       if (authorizeResult?.status && authorizeResult.status !== 'success') {
         throw new Error(authorizeResult?.message ?? 'Token inválido o expirado.')
