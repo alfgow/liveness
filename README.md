@@ -21,6 +21,23 @@ Estas sí deben llevar prefijo `VITE_` porque son leídas en build/browser:
 - `VITE_LIVENESS_SECRET_ACCESS_KEY` (solo si usas credenciales estáticas)
 - `VITE_LIVENESS_SESSION_TOKEN` (opcional)
 
+
+#### Variables adicionales de frontend soportadas
+
+Además de las variables anteriores, el frontend también soporta estas variables opcionales:
+
+- `VITE_AWS_ACCESS_KEY_ID` (alternativa a `VITE_LIVENESS_ACCESS_KEY_ID`)
+- `VITE_AWS_SECRET_ACCESS_KEY` (alternativa a `VITE_LIVENESS_SECRET_ACCESS_KEY`)
+- `VITE_AWS_SESSION_TOKEN` (alternativa a `VITE_LIVENESS_SESSION_TOKEN`)
+- `VITE_AWS_REGION` (alternativa a `VITE_REKOGNITION_REGION`/`VITE_LIVENESS_REGION`)
+- `VITE_LIVENESS_REGION` (fallback de región para frontend)
+- `VITE_LIVENESS_AUTHORIZE_ENDPOINT` (default `/api/v1/prospectos/identidad/validate`)
+- `VITE_LIVENESS_SESSION_ENDPOINT` (default `/api/liveness/session`)
+- `VITE_LIVENESS_RESULT_ENDPOINT` (default `/api/liveness/result`)
+- `VITE_VALIDATIONS_ENDPOINT` (default `/api/v1/inquilinos/{{id_inquilino}}/validaciones`)
+
+> También puedes inyectar configuración en runtime con `window.__LIVENESS_CONFIG__` para sobreescribir valores de `VITE_*` sin reconstruir el frontend.
+
 ### Backend (Node/Express)
 
 Variables para liveness + face match:
@@ -32,12 +49,13 @@ Variables para liveness + face match:
 - `LIVENESS_MIN_CONFIDENCE` (default `90`, umbral de aprobación automática)
 - `LIVENESS_REVIEW_MIN_CONFIDENCE` (default `85`, inicio de zona gris para revisión manual)
 - `FACE_MATCH_REVIEW_MIN_THRESHOLD` (default `85`, mínimo para evitar rechazo automático por match)
-- `SELFIE_BUCKET` (**requerida**)
+- `SELFIE_BUCKET` (**requerida**, debe ser **nombre de bucket**, no ARN; ej. `my-selfies-bucket`)
 - `SELFIE_KEY_TEMPLATE` (default `tenants/{tenant_id}/prospects/{prospect_id}/selfie.jpg`)
+- `selfie_key` enviado desde frontend al backend: se toma de `data.selfie_key` del authorize y, si no viene, fallback a `data.s3_key`; si tampoco viene, backend usa la ruta canónica con `SELFIE_KEY_TEMPLATE`.
 
 Variables para evidencias canónicas y trazabilidad:
 
-- `LIVENESS_EVIDENCE_BUCKET` (**requerida para persistir evidencia canónica**)
+- `LIVENESS_EVIDENCE_BUCKET` (**requerida para persistir evidencia canónica**, debe ser **nombre de bucket**, no ARN)
 - `LIVENESS_EVIDENCE_PREFIX` (default `liveness-evidence`)
 - `LIVENESS_ALGORITHM_VERSION` (default `rekognition-face-liveness-v1`)
 - `LIVENESS_APPLY_LIFECYCLE_POLICY` (`true|false`, default `false`)
@@ -50,6 +68,18 @@ Credenciales backend (orden de preferencia):
 1. `LIVENESS_ACCESS_KEY_ID` + `LIVENESS_SECRET_ACCESS_KEY` (+ `LIVENESS_SESSION_TOKEN` opcional)
 2. `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` (+ `AWS_SESSION_TOKEN` opcional)
 3. Si no se definen, AWS SDK intentará provider chain por defecto (IAM role, etc.)
+
+Formato/valores esperados para credenciales:
+
+- `*_ACCESS_KEY_ID`: string tipo Access Key ID de AWS (ej. `AKIA...` o `ASIA...` si son temporales STS).
+- `*_SECRET_ACCESS_KEY`: string secreto asociado a esa Access Key.
+- `*_SESSION_TOKEN`: **obligatorio** cuando usas credenciales temporales STS (`ASIA...`), opcional con credenciales de largo plazo (`AKIA...`).
+
+¿Deben ser credenciales de usuario IAM?
+
+- **Sí pueden ser** de un usuario IAM (Access Key + Secret), pero para producción se recomienda **no** usar llaves estáticas en variables de entorno.
+- Recomendado en producción: usar **IAM Role** (EC2/ECS/Lambda/Amplify/CodeBuild) y dejar que el SDK tome credenciales por provider chain.
+- Si usas llaves, deben tener permisos mínimos (least privilege) solo para Rekognition/S3/KMS requeridos por este flujo.
 
 ## Flujo de evidencia y metadata
 

@@ -142,6 +142,14 @@ const buildEvidenceObjectKey = ({ tenant_id, session_id }) => {
 };
 
 const assertAllowedSelfieKey = ({ tenant_id, prospect_id, selfie_key }) => {
+  if (!prospect_id && selfie_key) {
+    if (selfie_key.includes('..')) {
+      throw new Error('selfie_key inválido. No se permiten segmentos relativos.');
+    }
+
+    return selfie_key.replace(/^\/+/, '');
+  }
+
   const canonicalKey = buildCanonicalSelfieKey({ tenant_id, prospect_id });
 
   if (!selfie_key || selfie_key === canonicalKey) {
