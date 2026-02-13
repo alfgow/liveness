@@ -43,7 +43,12 @@ function App() {
 
     return {
       apiBaseUrl: runtimeConfig.apiBaseUrl ?? import.meta.env.VITE_API_BASE_URL ?? '',
-      livenessBaseUrl: runtimeConfig.livenessBaseUrl ?? import.meta.env.VITE_LIVENESS_BASE_URL ?? '',
+      livenessBaseUrl:
+        runtimeConfig.livenessBaseUrl ??
+        import.meta.env.VITE_LIVENESS_BASE_URL ??
+        runtimeConfig.apiBaseUrl ??
+        import.meta.env.VITE_API_BASE_URL ??
+        '',
       apiToken: runtimeConfig.apiToken ?? import.meta.env.VITE_API_TOKEN ?? '',
       authorizeEndpoint:
         runtimeConfig.authorizeEndpoint ??
@@ -449,7 +454,23 @@ const buildEndpoint = (endpoint, token, apiBaseUrl) => {
     return normalized
   }
 
-  return `${apiBaseUrl ?? ''}${normalized}`
+  return joinBaseAndPath(apiBaseUrl, normalized)
+}
+
+const joinBaseAndPath = (baseUrl, path) => {
+  const safePath = path ?? ''
+  if (!baseUrl) {
+    return safePath
+  }
+
+  const trimmedBaseUrl = String(baseUrl).replace(/\/+$/, '')
+  const trimmedPath = String(safePath).replace(/^\/+/, '')
+
+  if (!trimmedPath) {
+    return trimmedBaseUrl
+  }
+
+  return `${trimmedBaseUrl}/${trimmedPath}`
 }
 
 
@@ -467,7 +488,7 @@ const buildValidationsEndpoint = (config, tenantId) => {
     return endpointWithId
   }
 
-  return `${config.apiBaseUrl ?? ''}${endpointWithId}`
+  return joinBaseAndPath(config.apiBaseUrl, endpointWithId)
 }
 
 const persistValidation = async (config, tenantId, result) => {
