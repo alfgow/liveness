@@ -488,6 +488,37 @@ const joinBaseAndPath = (baseUrl, path) => {
   return `${trimmedBaseUrl}/${trimmedPath}`
 }
 
+const getBaseUrlFromEndpoint = (endpoint) => {
+  if (!endpoint || !String(endpoint).startsWith('http')) {
+    return ''
+  }
+
+  try {
+    return new URL(endpoint).origin
+  } catch {
+    return ''
+  }
+}
+
+const resolveLivenessBaseUrl = (config) => {
+  return (
+    config?.livenessBaseUrl ||
+    config?.apiBaseUrl ||
+    getBaseUrlFromEndpoint(config?.resultEndpoint) ||
+    getBaseUrlFromEndpoint(config?.authorizeEndpoint) ||
+    ''
+  )
+}
+
+const resolveApiBaseUrl = (config) => {
+  return (
+    config?.apiBaseUrl ||
+    getBaseUrlFromEndpoint(config?.validationsEndpoint) ||
+    getBaseUrlFromEndpoint(config?.authorizeEndpoint) ||
+    ''
+  )
+}
+
 
 const buildValidationsEndpoint = (config, tenantId) => {
   if (!tenantId || !config?.validationsEndpoint) {
@@ -503,7 +534,7 @@ const buildValidationsEndpoint = (config, tenantId) => {
     return endpointWithId
   }
 
-  return joinBaseAndPath(config.apiBaseUrl, endpointWithId)
+  return joinBaseAndPath(resolveApiBaseUrl(config), endpointWithId)
 }
 
 const persistValidation = async (config, tenantId, result) => {
@@ -552,7 +583,7 @@ const persistValidation = async (config, tenantId, result) => {
 }
 
 const getBackendLivenessResult = async ({ config, sessionId, tenantId, prospectId, selfieKey }) => {
-  const resultUrl = buildEndpoint(config.resultEndpoint, '', config.livenessBaseUrl)
+  const resultUrl = buildEndpoint(config.resultEndpoint, '', resolveLivenessBaseUrl(config))
 
   if (!resultUrl) {
     throw new Error('No se encontró el endpoint de resultado de liveness.')
