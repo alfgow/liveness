@@ -350,12 +350,18 @@ function App() {
     []
   )
 
+  const isDetectorView = !error && showDetector && status !== 'completed' && status !== 'saving' && Boolean(session)
+
   return (
-    <div className="min-h-screen bg-brand-surface py-12 px-4">
+    <div
+      className={`min-h-screen bg-brand-surface py-12 px-4 liveness-page ${
+        isDetectorView ? 'liveness-page--detector' : ''
+      }`}
+    >
       <div className="container mx-auto max-w-4xl">
         
         {/* Brand Header */}
-        <div className="liveness-header-brand">
+        <div className={`liveness-header-brand ${isDetectorView ? 'liveness-header-brand--compact' : ''}`}>
           <div className="brand-logo-container">
             <img 
               src="https://alfgow.s3.mx-central-1.amazonaws.com/Logo+Circular.png" 
@@ -373,15 +379,15 @@ function App() {
         <div className="bg-white rounded-2rem shadow-soft border border-brand-accent-20 overflow-hidden">
           
           {/* Card Header */}
-          <div className="card-header">
+          <div className={`card-header ${isDetectorView ? 'card-header--compact' : ''}`}>
             <h1 className="card-title">Comprobación de vida</h1>
-            <p className="card-subtitle">
+            <p className={`card-subtitle ${isDetectorView ? 'card-subtitle--hidden' : ''}`}>
               Sigue las instrucciones en pantalla para completar la validación de tu identidad.
             </p>
           </div>
 
           {/* Card Content */}
-          <div className="liveness-content">
+          <div className={`liveness-content ${isDetectorView ? 'liveness-content--compact' : ''}`}>
             <div className="liveness-container">
               {error ? <div className="liveness-error">{error}</div> : null}
 
