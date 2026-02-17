@@ -252,12 +252,25 @@ function App() {
         selfieKey,
       })
 
-      if (livenessResult?.data?.status === 'SUCCEEDED') {
-        // La persistencia ahora la maneja el endpoint de result directamente
-        // await persistValidation(config, tenantId, livenessResult)
-        setStatus('completed')
-        setShowDetector(false)
-        return
+      const data = livenessResult?.data || {}
+      const decision = data.liveness_decision || {}
+
+      // Validar si el proceso técnico (AWS) fue exitoso
+      if (data.status === 'SUCCEEDED') {
+        // Validar si la decisión de negocio fue aprobada
+        if (decision.approved) {
+          setStatus('completed')
+          setShowDetector(false)
+          return
+        }
+
+        // Manejo de casos de rechazo específicos con mensajes amigables
+        if (decision.code === 'liveness_passed_face_mismatch') {
+          throw new Error('Validación de vida exitosa, pero tu rostro no coincide con la foto de referencia. Por favor contacta a tu asesor de arrendamientoseguro.app.')
+        }
+
+        // Mensaje genérico o el que venga del backend si no es un código conocido
+        throw new Error(decision.message || 'No pudimos validar tu identidad. Por favor intenta nuevamente.')
       }
 
       throw new Error('La validación no fue exitosa o expiró.')
@@ -417,7 +430,9 @@ function App() {
 
               {!error && status === 'completed' ? (
                 <div className="liveness-success">
-                  ✅ Validación completada exitosamente. Puedes cerrar esta ventana.
+                  <div style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>🎉</div>
+                  <h3 style={{ fontWeight: 'bold', marginBottom: '0.5rem' }}>¡Identidad Validada!</h3>
+                  <p>El proceso se completó exitosamente. Ya puedes cerrar esta ventana.</p>
                 </div>
               ) : null}
 
