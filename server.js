@@ -406,13 +406,23 @@ app.post('/api/liveness/session', async (_req, res) => {
   }
 });
 
-app.post('/api/liveness/result', async (req, res) => {
+const getLivenessResultRequestData = (req) => {
+  const source = req.method === 'GET' ? req.query : req.body;
+  return {
+    session_id: source?.session_id,
+    prospect_id: source?.prospect_id,
+    tenant_id: source?.tenant_id,
+    selfie_key: source?.selfie_key,
+  };
+};
+
+const handleLivenessResult = async (req, res) => {
   const {
     session_id,
     prospect_id,
     tenant_id,
     selfie_key,
-  } = req.body;
+  } = getLivenessResultRequestData(req);
 
   if (!session_id) {
     return res.status(400).json({ error: 'Falta session_id' });
@@ -519,7 +529,10 @@ app.post('/api/liveness/result', async (req, res) => {
     });
     return res.status(500).json({ error: 'Error al obtener los resultados', details: error.message });
   }
-});
+};
+
+app.post('/api/liveness/result', handleLivenessResult);
+app.get('/api/liveness/result', handleLivenessResult);
 
 app.get('/api/liveness/validation/:sessionId', (req, res) => {
   const validationResult = validationResultsBySession.get(req.params.sessionId);
