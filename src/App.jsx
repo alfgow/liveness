@@ -252,8 +252,9 @@ function App() {
         selfieKey,
       })
 
-      if (livenessResult?.status === 'success') {
-        await persistValidation(config, tenantId, livenessResult)
+      if (livenessResult?.status === 'SUCCEEDED') {
+        // La persistencia ahora la maneja el endpoint de result directamente
+        // await persistValidation(config, tenantId, livenessResult)
         setStatus('completed')
         setShowDetector(false)
         return
@@ -584,14 +585,9 @@ const persistValidation = async (config, tenantId, result) => {
   }
 }
 
-const getBackendLivenessResult = async ({ config, sessionId, tenantId, prospectId, selfieKey }) => {
-  const resultUrl = stripTrailingSlash(
-    buildEndpoint(config.resultEndpoint, '', resolveLivenessBaseUrl(config))
-  )
-
-  if (!resultUrl) {
-    throw new Error('No se encontró el endpoint de resultado de liveness.')
-  }
+const getBackendLivenessResult = async ({ config, sessionId, tenantId }) => {
+  const baseUrl = resolveApiBaseUrl(config)
+  const resultUrl = `${baseUrl}/api/v1/inquilinos/${tenantId}/liveness/result/${sessionId}`
 
   const headers = { 'Content-Type': 'application/json' }
   if (config.apiToken) {
@@ -599,14 +595,8 @@ const getBackendLivenessResult = async ({ config, sessionId, tenantId, prospectI
   }
 
   const response = await fetch(resultUrl, {
-    method: 'POST',
+    method: 'GET',
     headers,
-    body: JSON.stringify({
-      session_id: sessionId,
-      tenant_id: tenantId,
-      prospect_id: prospectId,
-      selfie_key: selfieKey || undefined,
-    }),
   })
 
   if (!response.ok) {
