@@ -500,6 +500,8 @@ const getBaseUrlFromEndpoint = (endpoint) => {
   }
 }
 
+const stripTrailingSlash = (value) => String(value ?? '').replace(/\/+((\?|#).*)?$/, '$1')
+
 const resolveLivenessBaseUrl = (config) => {
   return (
     config?.livenessBaseUrl ||
@@ -583,7 +585,9 @@ const persistValidation = async (config, tenantId, result) => {
 }
 
 const getBackendLivenessResult = async ({ config, sessionId, tenantId, prospectId, selfieKey }) => {
-  const resultUrl = buildEndpoint(config.resultEndpoint, '', resolveLivenessBaseUrl(config))
+  const resultUrl = stripTrailingSlash(
+    buildEndpoint(config.resultEndpoint, '', resolveLivenessBaseUrl(config))
+  )
 
   if (!resultUrl) {
     throw new Error('No se encontró el endpoint de resultado de liveness.')
