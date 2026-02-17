@@ -252,7 +252,7 @@ function App() {
         selfieKey,
       })
 
-      if (livenessResult?.status === 'SUCCEEDED') {
+      if (livenessResult?.data?.status === 'SUCCEEDED') {
         // La persistencia ahora la maneja el endpoint de result directamente
         // await persistValidation(config, tenantId, livenessResult)
         setStatus('completed')
