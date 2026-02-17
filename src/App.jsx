@@ -138,12 +138,6 @@ function App() {
   }, [config, token])
 
   useEffect(() => {
-    if (status === 'ready') {
-      setShowDetector(true)
-    }
-  }, [status])
-
-  useEffect(() => {
     analysisCompleteRef.current = false
   }, [session?.sessionId])
 
@@ -397,6 +391,21 @@ function App() {
 
               {!error && status === 'saving' ? (
                 <div className="liveness-status">Guardando resultado...</div>
+              ) : null}
+
+              {!error && status === 'ready' && !showDetector ? (
+                <div className="liveness-start-card">
+                  <p className="liveness-start-copy">
+                    Todo está listo. Presiona el botón para iniciar tu validación en video.
+                  </p>
+                  <button
+                    type="button"
+                    className="liveness-start-button"
+                    onClick={() => setShowDetector(true)}
+                  >
+                    Iniciar validación en video
+                  </button>
+                </div>
               ) : null}
 
               {!error && status === 'completed' ? (

@@ -179,3 +179,34 @@
   color: #15803d;
   border: 1px solid #bbf7d0;
 }
+
+.liveness-start-card {
+  width: 100%;
+  max-width: 34rem;
+  margin-bottom: 1rem;
+  padding: 1.25rem;
+  border: 1px solid rgba(251, 188, 188, 0.5);
+  border-radius: 0.75rem;
+  background-color: var(--brand-surface);
+  text-align: center;
+}
+
+.liveness-start-copy {
+  margin: 0 0 1rem;
+  color: var(--brand-dark);
+  font-weight: 600;
+}
+
+.liveness-start-button {
+  border: 0;
+  border-radius: 0.75rem;
+  padding: 0.75rem 1.25rem;
+  background-color: var(--brand-red);
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.liveness-start-button:hover {
+  filter: brightness(0.95);
+}
